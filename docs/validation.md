@@ -1,0 +1,36 @@
+# Validation and release
+
+Local synthetic validation is distinct from live dataset and scientific acceptance. No synthetic result should be inserted into a manuscript as an All of Us finding.
+
+## Reproduce local checks
+
+Build `Dockerfile.dev`, then run this inside that image with only the public repository mounted:
+
+```sh
+ruff check src tests
+ruff format --check src tests
+python -m build
+pip install --no-deps dist/*.whl
+pytest -q
+aou-studies synthetic --config examples/synthetic.yaml --output outputs/validation
+```
+
+Tests include hand-calculated feature cases, study predicates, unique membership, exact/caliper/no-reuse rules, shuffled-input determinism, conditional coefficient/SE agreement with R survival (absolute tolerance 0.0002), cobalt balance agreement (absolute tolerance 1e-10), sparse Firth intervals, fixed multiplicity families, missingness attrition, cache tampering, model-specific suppression, and a fresh-kernel public notebook. The synthetic survey benchmark in this folder measures a local transformation only; it is not a Workbench cost or full-population performance estimate.
+
+## Live acceptance in an authorized workspace
+
+1. Verify the package artifact SHA-256, full commit, Python/R versions, and pinned study specification.
+2. Verify `wb` resource resolution and the billing project independently. Run schema/vocabulary preflight, then dry-run all planned extraction queries against the explicit byte cap.
+3. Run `python scripts/cloud_sql_smoke.py --billing-project YOUR_WORKSPACE_PROJECT`. The harness replaces every CDR table with literal synthetic fixtures and checks dated condition counts/span, age boundaries, survey conflicts, units, ties, and missingness. It reads no CDR data and creates no persistent dataset, but uses the project's BigQuery query service and temporary results. This test does not verify real dataset access or metadata.
+4. Run the approved study. Inspect source coverage, flow, matching attrition, exact factors, calipers, ratios, and balance before fitting associations.
+5. Run every prespecified model and sensitivity, including non-estimable rows. Review formula, sample/set attrition, uncertainty, and multiplicity together.
+6. Restart the kernel and rerun frozen permitted inputs. Compare membership and numerical-result hashes under the same environment; investigate any difference before accepting a revision.
+7. Review the complete proposed aggregate export for scientific accuracy and direct or indirect disclosure. Private participant frames and full diagnostics remain inside Workbench.
+
+## Release boundary
+
+Review only this repository. Keep study manuscripts, reviewer correspondence, private clinical configurations, participant data, credentials, notebook outputs, and research run manifests outside Git. Publish a full commit, immutable-in-use tag, wheel, sdist, checksums, and `release-manifest.json` as release assets. The manifest records local checks and live acceptance separately. It lives with release assets because a commit cannot contain its own final commit hash.
+
+The current implementation needs live Workbench acceptance. Synthetic tests, metadata documentation, workspace creation, and a running VM do not substitute for that acceptance.
+
+Local release preparation on 2026-09-08 passed 40 tests in a clean wheel environment. The normal synthetic example produced an estimable primary model. No live BigQuery test has run yet. A separate generated 10,000/50,000-person matching benchmark is recorded in `matching-benchmark.json`; its dimensions and limitations are part of that record.

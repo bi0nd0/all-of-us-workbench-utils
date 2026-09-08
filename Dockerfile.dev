@@ -1,0 +1,15 @@
+FROM python:3.12-slim-bookworm@sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    r-base r-cran-matchit r-cran-jsonlite r-cran-survival r-cran-mice \
+    r-cran-ggplot2 r-cran-gridextra \
+    build-essential gfortran libblas-dev liblapack-dev libcurl4-openssl-dev libssl-dev libxml2-dev \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /opt/aou-runtime
+COPY renv.lock ./
+COPY scripts/restore-r.R scripts/check-r.R ./scripts/
+RUN Rscript scripts/restore-r.R
+ENV AOU_R_LIBRARY=/opt/aou-runtime/r-library
+COPY requirements.lock ./
+RUN pip install --no-cache-dir -r requirements.lock
+WORKDIR /workspace

@@ -1,0 +1,76 @@
+{
+  "study_id": "alternate_demo",
+  "version": "1",
+  "age_reference_date": "2026-09-07",
+  "clinical_cutoff": "2025-01-01",
+  "tier": "registered",
+  "case": {
+    "field": "alternate_disease",
+    "value": 1
+  },
+  "control": {
+    "all_of": [
+      {
+        "field": "alternate_disease",
+        "value": 0
+      },
+      {
+        "field": "exclusion_condition",
+        "value": 0
+      }
+    ]
+  },
+  "conditions": {
+    "alternate_disease": {
+      "concepts": {
+        "ids": [
+          3
+        ]
+      }
+    },
+    "example_condition": {
+      "concepts": {
+        "ids": [
+          2
+        ]
+      }
+    },
+    "exclusion_condition": {
+      "concepts": {
+        "ids": [
+          4
+        ]
+      }
+    }
+  },
+  "matching": {
+    "method": "propensity",
+    "distance": [
+      "age",
+      "ehr_days"
+    ],
+    "ratio": 2,
+    "propensity_caliper": 0.2
+  },
+  "models": [
+    {
+      "name": "primary",
+      "predictors": [
+        "example_condition"
+      ],
+      "covariates": [
+        "age"
+      ],
+      "primary": true
+    }
+  ],
+  "categorical": [
+    "sex_at_birth"
+  ],
+  "continuous": [
+    "age",
+    "ehr_days"
+  ],
+  "minimum_age": 40,
+  "maximum_age": 70
+}

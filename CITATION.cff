@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "Please cite the exact software release and the numerical engines used in your analysis."
+type: software
+title: "All of Us Workbench utilities"
+authors:
+  - family-names: Delacqua
+    given-names: Francesco
+repository-code: "https://github.com/bi0nd0/all-of-us-workbench-utils"
+version: 0.1.0
+license: MIT

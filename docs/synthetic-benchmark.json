@@ -1,0 +1,9 @@
+{
+  "fixture": "100000 generated survey rows, two duplicate rows per synthetic person",
+  "rows": 100000,
+  "participant_rows": 50000,
+  "seconds": 0.0982,
+  "max_rss_kib": 145144,
+  "environment": "isolated Linux arm64 development container",
+  "note": "A local synthetic reduction benchmark, not a cloud query cost or population estimate."
+}

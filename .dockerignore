@@ -1,0 +1,10 @@
+.git
+.venv
+outputs
+private
+__pycache__
+.pytest_cache
+.ruff_cache
+r-library
+renv
+dist

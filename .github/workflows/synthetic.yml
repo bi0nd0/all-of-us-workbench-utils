@@ -1,0 +1,24 @@
+name: Synthetic validation
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build locked numerical environment
+        run: docker build -f Dockerfile.dev -t aou-studies-ci .
+      - name: Lint, install wheel, and run synthetic tests
+        run: |
+          docker run --rm -v "$PWD:/workspace" aou-studies-ci sh -c '
+            ruff check src tests scripts &&
+            ruff format --check src tests scripts &&
+            python -m build &&
+            pip install --no-deps dist/*.whl &&
+            pytest -q &&
+            aou-studies synthetic --config examples/synthetic.yaml --output outputs/ci
+          '

@@ -1,0 +1,23 @@
+{
+  "date": "2026-09-08",
+  "environment": "Linux ARM64 Docker, Python 3.12, R 4.2.2, MatchIt 4.7.2",
+  "scope": "Generated inputs; single age distance with exact sex, raw age caliper 3, up to 4 controls, no replacement. Not a cloud cost prediction or assurance for arbitrary match dimensions. Legacy results are not a correctness/performance reference because its matching contract differs. RSS is cumulative maximum child-process RSS.",
+  "runs": [
+    {
+      "synthetic_people": 10000,
+      "synthetic_case_fraction": 0.02,
+      "seconds": 1.55,
+      "matched_cases": 200,
+      "matched_controls": 800,
+      "max_child_rss_kib": 210588
+    },
+    {
+      "synthetic_people": 50000,
+      "synthetic_case_fraction": 0.02,
+      "seconds": 3.445,
+      "matched_cases": 1000,
+      "matched_controls": 4000,
+      "max_child_rss_kib": 248876
+    }
+  ]
+}

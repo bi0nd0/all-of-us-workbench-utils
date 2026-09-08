@@ -1,0 +1,62 @@
+{
+  "study_id": "synthetic_demo",
+  "version": "1",
+  "age_reference_date": "2026-09-07",
+  "clinical_cutoff": "2025-01-01",
+  "tier": "registered",
+  "case": {
+    "field": "example_disease",
+    "value": 1
+  },
+  "control": {
+    "field": "example_disease",
+    "value": 0
+  },
+  "conditions": {
+    "example_disease": {
+      "concepts": {
+        "ids": [
+          1
+        ]
+      }
+    },
+    "example_condition": {
+      "concepts": {
+        "ids": [
+          2
+        ]
+      }
+    }
+  },
+  "matching": {
+    "exact": [
+      "sex_at_birth"
+    ],
+    "distance": [
+      "age"
+    ],
+    "calipers": {
+      "age": 3
+    },
+    "ratio": 4
+  },
+  "models": [
+    {
+      "name": "primary",
+      "predictors": [
+        "example_condition"
+      ],
+      "covariates": [
+        "age"
+      ],
+      "primary": true
+    }
+  ],
+  "categorical": [
+    "sex_at_birth"
+  ],
+  "continuous": [
+    "age",
+    "ehr_days"
+  ]
+}
