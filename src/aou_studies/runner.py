@@ -163,8 +163,14 @@ class StudyRun:
             "matched_controls": self.matched.metadata["controls"],
         }
         report = build_report(self.matched, self.results, flow, self.spec)
+        report.metadata["synthetic"] = self.synthetic
         report.write(self.directory / "review")
-        return {"stage": "review_tables_written", "review_status": report.review_status}
+        return {
+            "stage": "review_tables_written",
+            "review_status": report.review_status,
+            "workbook": str(self.directory / "review" / "tables.xlsx"),
+            "snapshot": str(self.directory / "review" / "report.json"),
+        }
 
     def _save_manifest(self):
         (self.directory / "private" / "manifest.json").write_text(

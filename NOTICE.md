@@ -13,5 +13,6 @@ This project calls established packages instead of copying their matching optimi
 | Pydantic / PyYAML | Configuration validation and loading | https://docs.pydantic.dev/ / https://pyyaml.org/ |
 | google-cloud-bigquery / db-dtypes / PyArrow | Authorized BigQuery access and typed storage | https://cloud.google.com/python/docs/reference/bigquery/latest / https://arrow.apache.org/ |
 | renv | R dependency restoration | https://rstudio.github.io/renv/ |
+| XlsxWriter | Formatted Excel reporting | https://xlsxwriter.readthedocs.io/ |
 
 For manuscript references, obtain the exact installed R citations with `citation("MatchIt")`, `citation("cobalt")`, `citation("logistf")`, and `citation("survival")`. Use the corresponding Python project citation guidance. Record versions and the exact library commit used; do not cite a moving branch as a reproducible release.

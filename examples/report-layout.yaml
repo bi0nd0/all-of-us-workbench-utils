@@ -1,0 +1,28 @@
+title: Manuscript tables
+display:
+  descriptive_decimals: 1
+  percent_decimals: 1
+  estimate_decimals: 2
+  p_decimals: 3
+  characteristic_order: [age, sex_at_birth, race, ethnicity, bmi]
+sheets:
+  - name: Table 1
+    table: characteristics
+    title: Table 1. Participant characteristics
+    columns: [Characteristic, Cases, Controls]
+    column_labels: {Cases: Study group, Controls: Matched controls}
+    widths: {Characteristic: 40, Cases: 24, Controls: 24}
+    header_groups:
+      - label: Participants
+        columns: [Cases, Controls]
+  - name: Table 2
+    table: associations
+    title: Table 2. Condition associations
+    columns: [Model, Condition, "OR (95% CI)", P, Holm P, Cases, Controls, Status]
+    widths: {Model: 20, Condition: 23, "OR (95% CI)": 24, P: 9, Holm P: 9, Cases: 11, Controls: 11, Status: 17}
+  - name: Participant flow
+    table: flow
+    title: Participant selection and matching
+  - name: Matching balance
+    table: balance
+    title: Matching balance

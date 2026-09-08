@@ -79,3 +79,4 @@ typing_extensions==4.16.0
 tzdata==2026.3
 urllib3==2.7.0
 wcwidth==0.8.3
+XlsxWriter==3.2.9

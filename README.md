@@ -11,6 +11,7 @@ This independent project is not endorsed by the All of Us Research Program. Publ
 - MatchIt handles nearest Mahalanobis or propensity matching, exact factors, calipers, ratios, and replacement. Independent checks verify membership, no-reuse rules, and calipers. cobalt provides balance diagnostics using the full matching pool and explicit retained-set weights.
 - statsmodels conditional logistic regression preserves individual matched sets. R logistf provides an explicitly labeled **unconditional Firth sensitivity**, with prespecified covariate adjustment. Unsupported or unstable fits remain non-estimable; no silent estimator substitution.
 - Tables derive percentages from numerical denominators, report missingness, omit baseline P tests, and keep prespecified hypotheses in their Holm family. Conservative small-cell screening produces review candidates, not export clearance.
+- The notebook generates formatted Excel tables automatically. Reuse a YAML layout for journal headings, ordering, precision and sensitivity sheets; regenerate from saved aggregate reports without repeating queries or models.
 - Frozen dates, configuration, source concepts, dependency versions, code hashes, memberships, query metadata, and cache hashes make revisions traceable.
 
 The latest release verified on **2026-09-08** is **CDR v9**, with clinical cutoff **2025-01-01**. New studies should check the official [Data Dictionaries](https://support.researchallofus.org/hc/en-us/articles/360033200232-Data-Dictionaries). Existing analyses retain their pinned dataset and dates; the package never silently upgrades them.
@@ -27,7 +28,7 @@ docker run --rm -v "$PWD:/workspace" aou-studies-dev sh -c '
 '
 ```
 
-Open `outputs/example/review/report.html`. It contains synthetic review tables. `notebooks/synthetic_study.ipynb` runs both the initial example and a second study with different eligibility, exclusion, distance method, and ratio.
+Open `outputs/example/review/tables.xlsx` or `report.html`. They contain synthetic review tables. `notebooks/synthetic_study.ipynb` runs both the initial example and a second study with different eligibility, exclusion, distance method, and ratio, then demonstrates a custom manuscript layout.
 
 ```python
 from pathlib import Path

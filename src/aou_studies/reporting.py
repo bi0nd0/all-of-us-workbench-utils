@@ -3,7 +3,7 @@
 Real outputs stay in Workbench. These checks do not certify cross-table safety.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from html import escape
 import json
 from pathlib import Path
@@ -11,6 +11,8 @@ import numpy as np
 import pandas as pd
 from .contracts import MatchResult
 from .specs import StudySpec
+from .errors import DataContractError
+from .provenance import digest
 
 SUPPRESSED = "Suppressed"
 
@@ -120,9 +122,11 @@ def screened_associations(results: pd.DataFrame, members: pd.DataFrame) -> pd.Da
     return result
 
 
-def publication_characteristics(table: pd.DataFrame, labels: dict) -> pd.DataFrame:
+def publication_characteristics(
+    table: pd.DataFrame, labels: dict, *, decimals=1, percent_decimals=1
+) -> pd.DataFrame:
     def statistic(value):
-        return "Not available" if pd.isna(value) else f"{value:.1f}"
+        return "Not available" if pd.isna(value) else f"{value:.{decimals}f}"
 
     rows = []
     for row in table.itertuples(index=False):
@@ -133,7 +137,7 @@ def publication_characteristics(table: pd.DataFrame, labels: dict) -> pd.DataFra
                 {
                     "Characteristic": f"{variable}: {row.level}",
                     "Group": row.group,
-                    "Value": SUPPRESSED if hidden else f"{int(row.n)} ({row.percent:.1f}%)",
+                    "Value": SUPPRESSED if hidden else f"{int(row.n)} ({row.percent:.{percent_decimals}f}%)",
                 }
             )
         else:
@@ -148,16 +152,20 @@ def publication_characteristics(table: pd.DataFrame, labels: dict) -> pd.DataFra
                 ("Observed / missing", SUPPRESSED if hidden else f"{int(row.n)} / {int(row.missing)}"),
             ]:
                 rows.append({"Characteristic": f"{variable}: {suffix}", "Group": row.group, "Value": text})
-    return (
-        pd.DataFrame(rows)
-        .pivot(index="Characteristic", columns="Group", values="Value")
-        .fillna("0 (0.0%)")
-        .reset_index()
-        .rename_axis(None, axis=1)
-    )
+    if not rows:
+        return pd.DataFrame(columns=["Characteristic", "Cases", "Controls"])
+    long = pd.DataFrame(rows)
+    wide = long.pivot(index="Characteristic", columns="Group", values="Value")
+    wide = wide.reindex(index=long.Characteristic.drop_duplicates(), columns=["Cases", "Controls"])
+    for name in wide.index:
+        fill = SUPPRESSED if wide.loc[name].eq(SUPPRESSED).any() else f"0 ({0:.{percent_decimals}f}%)"
+        wide.loc[name] = wide.loc[name].fillna(fill)
+    return wide.reset_index().rename_axis(None, axis=1)
 
 
-def publication_associations(table: pd.DataFrame, labels: dict) -> pd.DataFrame:
+def publication_associations(
+    table: pd.DataFrame, labels: dict, *, decimals=None, percent_decimals=1, numeric=False
+) -> pd.DataFrame:
     def number(value, *, p=False):
         if isinstance(value, str):
             return value
@@ -165,34 +173,39 @@ def publication_associations(table: pd.DataFrame, labels: dict) -> pd.DataFrame:
             return "Not estimable"
         if p and value < 0.001:
             return "<0.001"
-        return f"{value:.3f}" if p else f"{value:.3g}"
+        return f"{value:.3f}" if p else (f"{value:.3g}" if decimals is None else f"{value:.{decimals}f}")
+
+    def scalar(value, *, p=False):
+        if numeric and not isinstance(value, str) and pd.notna(value):
+            return float(value)
+        return number(value, p=p)
 
     def fraction(n, total):
         if isinstance(n, str) or isinstance(total, str):
             return SUPPRESSED
         if pd.isna(n) or pd.isna(total) or total == 0:
             return "Not available"
-        return f"{int(n)}/{int(total)} ({100 * n / total:.1f}%)"
+        return f"{int(n)}/{int(total)} ({100 * n / total:.{percent_decimals}f}%)"
 
     rows = []
     for _, row in table.iterrows():
         rows.append(
             {
-                "Model": row.model.replace("_", " ").title(),
+                "Model": labels.get(row.model, row.model.replace("_", " ").title()),
                 "Condition": labels.get(row.predictor, row.predictor.replace("_", " ").title()),
                 "Status": {
                     "estimated": "Estimated",
                     "non_estimable": "Not estimable",
                     "suppressed_pending_disclosure_review": "Suppressed",
                 }.get(row.status, row.status),
-                "OR": number(row.odds_ratio),
+                "OR": scalar(row.odds_ratio),
                 "95% CI": (
                     number(row.ci_lower)
                     if number(row.ci_lower) in {SUPPRESSED, "Not estimable"}
                     else number(row.ci_lower) + " to " + number(row.ci_upper)
                 ),
-                "P": number(row.p_value, p=True),
-                "Holm P": number(row.p_holm, p=True) if row.primary else "Not primary",
+                "P": scalar(row.p_value, p=True),
+                "Holm P": scalar(row.p_holm, p=True) if row.primary else "Not primary",
                 "Cases": row.get("cases_analyzed"),
                 "Controls": row.get("controls_analyzed"),
                 "Matched sets": row.get("sets_analyzed"),
@@ -204,7 +217,15 @@ def publication_associations(table: pd.DataFrame, labels: dict) -> pd.DataFrame:
                 ),
             }
         )
-    return pd.DataFrame(rows)
+    result = pd.DataFrame(rows)
+    if numeric and not result.empty:
+        result["OR (95% CI)"] = [
+            number(row.odds_ratio)
+            if isinstance(row.odds_ratio, str) or pd.isna(row.odds_ratio)
+            else f"{number(row.odds_ratio)} ({number(row.ci_lower)} to {number(row.ci_upper)})"
+            for row in table.itertuples(index=False)
+        ]
+    return result
 
 
 @dataclass
@@ -212,6 +233,59 @@ class Report:
     tables: dict[str, pd.DataFrame]
     methods: str
     review_status: str = "requires_manual_disclosure_and_scientific_review"
+    screened_tables: dict[str, pd.DataFrame] = field(default_factory=dict)
+    metadata: dict = field(default_factory=dict)
+
+    def save(self, path: str | Path):
+        """Save screened aggregate inputs for formatting-only revisions inside Workbench."""
+
+        def frames(tables):
+            return {
+                name: {
+                    "columns": list(table),
+                    "data": table.astype(object).where(pd.notna(table), None).to_numpy().tolist(),
+                }
+                for name, table in tables.items()
+            }
+
+        payload = {
+            "schema_version": 1,
+            "tables": frames(self.tables),
+            "screened_tables": frames(self.screened_tables),
+            "methods": self.methods,
+            "review_status": self.review_status,
+            "metadata": self.metadata,
+        }
+        Path(path).write_text(
+            json.dumps({"payload": payload, "sha256": digest(payload)}, indent=2, allow_nan=False)
+        )
+
+    @classmethod
+    def load(cls, path: str | Path):
+        """Reload a saved report without participant files, source credentials or model engines."""
+        path = Path(path)
+        saved = json.loads((path / "report.json" if path.is_dir() else path).read_text())
+        payload = saved["payload"]
+        if digest(payload) != saved["sha256"] or payload["schema_version"] != 1:
+            raise DataContractError("Report snapshot content/version changed. Restore the saved report.")
+
+        def frames(tables):
+            return {
+                name: pd.DataFrame(value["data"], columns=value["columns"]) for name, value in tables.items()
+            }
+
+        return cls(
+            tables=frames(payload["tables"]),
+            methods=payload["methods"],
+            review_status=payload["review_status"],
+            screened_tables=frames(payload["screened_tables"]),
+            metadata=payload["metadata"],
+        )
+
+    def write_excel(self, path: str | Path, *, layout=None):
+        from .excel import write_workbook
+
+        return write_workbook(path, {"main": self}, layout=layout)
 
     def write(self, directory: str | Path):
         directory = Path(directory)
@@ -249,6 +323,8 @@ class Report:
             + "</pre></html>"
         )
         (directory / "report.html").write_text(html)
+        self.save(directory / "report.json")
+        self.write_excel(directory / "tables.xlsx")
 
 
 def build_report(matched: MatchResult, results: pd.DataFrame, flow: dict, study: StudySpec) -> Report:
@@ -298,16 +374,43 @@ def build_report(matched: MatchResult, results: pd.DataFrame, flow: dict, study:
             for m in study.models
         )
     )
+    screened = {
+        "characteristics": screened_characteristics(characteristics(matched, study)),
+        "associations": screened_associations(results, matched.members),
+    }
+    # Persist only fields used by table presentation. Fit diagnostics remain private.
+    association_fields = [
+        "model",
+        "predictor",
+        "primary",
+        "status",
+        "odds_ratio",
+        "ci_lower",
+        "ci_upper",
+        "p_value",
+        "p_holm",
+        "cases_analyzed",
+        "controls_analyzed",
+        "sets_analyzed",
+        "case_with_condition",
+        "control_with_condition",
+    ]
+    screened["associations"] = screened["associations"].reindex(columns=association_fields)
     return Report(
         {
-            "characteristics": publication_characteristics(
-                screened_characteristics(characteristics(matched, study)), study.labels
-            ),
-            "associations": publication_associations(
-                screened_associations(results, matched.members), study.labels
-            ),
+            "characteristics": publication_characteristics(screened["characteristics"], study.labels),
+            "associations": publication_associations(screened["associations"], study.labels),
             "flow": flow_table,
             "balance": balance,
         },
         methods,
+        screened_tables=screened,
+        metadata={
+            "study_id": study.study_id,
+            "protocol_version": study.version,
+            "labels": study.labels,
+            "age_reference_date": str(study.age_reference_date),
+            "clinical_cutoff": str(study.clinical_cutoff),
+            "dataset": study.dataset,
+        },
     )
