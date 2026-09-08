@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "all-of-us-workbench-utils"
-version = "0.2.0"
+version = "0.3.0"
 description = "Reproducible cohort extraction, matching and analysis for All of Us Workbench"
 readme = "README.md"
 requires-python = ">=3.12"

@@ -1,0 +1,17 @@
+version: example-publication-1
+reports:
+  main:
+    study_id: synthetic_demo
+    protocol_version: '1'
+    group_sizes: true
+    characteristics:
+      age: [median_iqr, missing]
+      sex_at_birth: [n_percent]
+      demographic_group: [n_percent]
+      example_condition: [n_percent, missing]
+      ehr_days: [median_iqr, missing]
+    associations:
+      primary: [example_condition]
+    tables:
+      flow: [Stage, Participants]
+      balance: [Variable, Absolute SMD before, Absolute SMD after]

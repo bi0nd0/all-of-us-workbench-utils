@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 import yaml
 
 from .errors import DataContractError
+from .report_content import Summary
 
 if TYPE_CHECKING:
     from .reporting import Report
@@ -47,6 +48,9 @@ class SheetSpec(LayoutModel):
     table: Literal["characteristics", "associations", "flow", "balance"]
     title: str = ""
     models: tuple[str, ...] = ()
+    variables: tuple[str, ...] = ()
+    summaries: dict[str, tuple[Summary, ...]] = Field(default_factory=dict)
+    group_sizes: bool = False
     columns: tuple[str, ...] = ()
     column_labels: dict[str, str] = Field(default_factory=dict)
     widths: dict[str, float] = Field(default_factory=dict)
@@ -62,14 +66,20 @@ class SheetSpec(LayoutModel):
             or self.name.endswith("'")
         ):
             raise ValueError("Use an Excel sheet name without brackets, slashes, colons or edge apostrophes.")
-        if self.name.casefold() in {"methods", "history"}:
-            raise ValueError("Methods and History are reserved sheet names.")
+        if self.name.casefold() in {"methods", "history", "coverage"}:
+            raise ValueError("Methods, History and Coverage are reserved sheet names.")
         if len(set(self.columns)) != len(self.columns):
             raise ValueError("Select each column only once.")
         if any(not math.isfinite(w) or not 8 <= w <= 80 for w in self.widths.values()):
             raise ValueError("Column widths must be finite and between 8 and 80.")
         if self.models and self.table != "associations":
             raise ValueError("Model selection applies only to association tables.")
+        if (self.variables or self.summaries or self.group_sizes) and self.table != "characteristics":
+            raise ValueError("Variable/summary selection and group sizes apply to characteristics tables.")
+        if len(set(self.variables)) != len(self.variables) or any(
+            not values for values in self.summaries.values()
+        ):
+            raise ValueError("Select unique variables and at least one summary for each selected variable.")
         return self
 
 
@@ -105,12 +115,21 @@ def _table(report: "Report", sheet: SheetSpec, display: DisplayFormat):
     if sheet.table in report.screened_tables:
         source = report.screened_tables[sheet.table].copy(deep=True)
         if sheet.table == "characteristics":
+            if sheet.variables:
+                missing = set(sheet.variables) - set(source.variable)
+                if missing:
+                    raise DataContractError(
+                        f"Missing saved characteristics: {sorted(missing)}. Regenerate the report with the required content."
+                    )
+                source = source[source.variable.isin(sheet.variables)]
             source = _ordered(source, "variable", display.characteristic_order)
+            source = _ordered(source, "variable", sheet.variables)
             table = publication_characteristics(
                 source,
                 labels,
                 decimals=display.descriptive_decimals,
                 percent_decimals=display.percent_decimals,
+                summaries=sheet.summaries,
             )
         else:
             if sheet.models:
@@ -128,12 +147,22 @@ def _table(report: "Report", sheet: SheetSpec, display: DisplayFormat):
                 numeric=True,
             )
     else:
-        if sheet.models:
+        if sheet.models or sheet.variables or sheet.summaries:
             raise DataContractError("This saved report lacks numeric aggregates. Regenerate its report once.")
         table = report.tables[sheet.table].copy(deep=True)
     if table.empty:
         raise DataContractError(f"No rows for sheet {sheet.name}; review its table/model selection.")
     columns = list(sheet.columns or table.columns)
+    if (
+        sheet.table == "associations"
+        and len({m for m, _ in table.attrs.get("associations", {})}) > 1
+        and "Model" not in columns
+    ):
+        raise DataContractError("Include the Model column when displaying more than one model on a sheet.")
+    if sheet.group_sizes and set(report.metadata.get("group_sizes", {})) != {"Cases", "Controls"}:
+        raise DataContractError("This saved report lacks group sizes. Regenerate its report once.")
+    if len(set(sheet.column_labels.get(c, c) for c in columns)) != len(columns):
+        raise DataContractError("Displayed column labels must remain distinct.")
     referenced = set(columns) | set(sheet.widths) | set(sheet.column_labels)
     if referenced - set(table.columns):
         raise DataContractError(f"Unknown report columns: {sorted(referenced - set(table.columns))}")
@@ -258,9 +287,14 @@ def _sheet(writer, report, spec, display, table):
         row += 1
     header_row = row
     for col, name in enumerate(columns):
-        ws.write_string(row, col, spec.column_labels.get(name, name), header)
+        label = spec.column_labels.get(name, name)
+        if spec.group_sizes and name in {"Cases", "Controls"}:
+            n = report.metadata["group_sizes"][name]
+            label += f"\n(n = {n:,})" if isinstance(n, int) else f"\n(n = {n})"
+        ws.write_string(row, col, label, header)
     ws.set_row(row, 44)
     row += 1
+    body_formats = []
     for col, name in enumerate(columns):
         code = "General"
         if name in {"Cases", "Controls", "Matched sets", "Participants"}:
@@ -279,11 +313,15 @@ def _sheet(writer, report, spec, display, table):
             {**base, "num_format": code, "indent": 1, "align": "right" if code != "General" else "left"}
         )
         ws.set_column(col, col, widths[col], fmt)
+        body_formats.append(fmt)
     # Pandas writes only the selected screened values; no hidden raw-data sheets.
     table.to_excel(
         writer, sheet_name=spec.name, startrow=row, index=False, header=False, na_rep="Not available"
     )
     for offset, values in enumerate(table.itertuples(index=False, name=None)):
+        # Explicit cell formats also work in readers that do not inherit column styles.
+        for col, (value, fmt) in enumerate(zip(values, body_formats)):
+            ws.write(row + offset, col, "Not available" if pd.isna(value) else value, fmt)
         height = max(
             1,
             max(
@@ -303,7 +341,7 @@ def _sheet(writer, report, spec, display, table):
     if spec.table in {"balance", "flow"}:
         ws.autofilter(header_row, 0, end - 1, last)
     footnotes = {
-        "characteristics": "Counts are unique participants. Percentages use each group's denominator. Continuous values show mean (SD), median [Q1, Q3], and observed/missing counts. No baseline P values.",
+        "characteristics": "Counts are unique participants. Categorical percentages use the full group; binary n/N (%) uses participants with an observed value. Summary types and observed/missing counts are labeled per row. No baseline P values.",
         "associations": "OR: association odds ratio for sampled case status. Each fraction uses the model-specific denominator. Conditional models use pointwise 95% Wald intervals; unconditional Firth sensitivities use profile-likelihood intervals. Holm P applies only to the prespecified primary family.",
         "flow": "Participant counts describe cohort construction and matching. Stages may overlap; do not add them.",
         "balance": "SMD: standardized mean difference. Before matching uses the eligible pool; after matching uses retained-set weights. Characteristics use unweighted counts.",
@@ -326,14 +364,7 @@ def _sheet(writer, report, spec, display, table):
     ws.set_footer("Page &P of &N")
 
 
-def write_workbook(
-    path: str | Path, reports: Mapping[str, "Report"], *, layout: WorkbookSpec | None = None
-) -> Path:
-    """Write selected tables from one or more saved reports. Returns the XLSX path.
-
-    Formatting changes never requery, rematch or refit. ``reports`` must contain
-    screened report objects produced by the runner (or loaded from their snapshots).
-    """
+def _prepare(reports, layout):
     if not reports:
         raise DataContractError("Provide at least one saved report.")
     if len({r.metadata.get("synthetic") for r in reports.values()}) > 1:
@@ -346,6 +377,69 @@ def write_workbook(
         if sheet.report not in reports:
             raise DataContractError(f"Missing report {sheet.report!r} for sheet {sheet.name!r}.")
         prepared.append((sheet, _table(reports[sheet.report], sheet, layout.display)))
+    return layout, prepared
+
+
+def _coverage_sheet(writer, coverage):
+    ws = writer.book.add_worksheet("Coverage")
+    ws.hide_gridlines(2)
+    header = writer.book.add_format({"bold": True, "bg_color": "#EDF1F5", "text_wrap": True})
+    body = writer.book.add_format({"font_name": "Arial", "font_size": 10, "text_wrap": True, "valign": "top"})
+    ws.merge_range(
+        0,
+        0,
+        0,
+        4,
+        "Required content is accounted for. Scientific and disclosure review remain separate.",
+        body,
+    )
+    ws.set_row(0, 32)
+    for col, (name, width) in enumerate(zip(coverage.table.columns, [20, 34, 24, 36, 55])):
+        ws.set_column(col, col, width, body)
+        ws.write_string(2, col, name, header)
+    coverage.table.to_excel(writer, sheet_name="Coverage", startrow=3, index=False, header=False)
+    for idx, values in enumerate(coverage.table.itertuples(index=False, name=None)):
+        height = (
+            max(
+                sum(len(textwrap.wrap(line, width - 2)) or 1 for line in str(value).splitlines())
+                for value, width in zip(values, [20, 34, 24, 36, 55])
+            )
+            * 14
+            + 6
+        )
+        if height > 409 or any(len(str(value)) > 32767 for value in values):
+            raise DataContractError(
+                "Coverage labels are too long for Excel; shorten content identifiers or sheet names."
+            )
+        ws.set_row(idx + 3, max(24, height))
+        for col, value in enumerate(values):
+            ws.write_string(idx + 3, col, value, body)
+    ws.freeze_panes(3, 2)
+    ws.autofilter(2, 0, len(coverage.table) + 2, 4)
+    ws.set_landscape()
+    ws.fit_to_pages(1, 0)
+    ws.repeat_rows(2, 2)
+    ws.print_area(0, 0, len(coverage.table) + 2, 4)
+
+
+def write_workbook(
+    path: str | Path,
+    reports: Mapping[str, "Report"],
+    *,
+    layout: WorkbookSpec | None = None,
+    requirements=None,
+) -> Path:
+    """Export screened tables; optional separate requirements reject incomplete publication coverage.
+
+    Layout-only revisions never query, match or fit. A complete coverage check does
+    not establish estimability, disclosure clearance or scientific acceptance.
+    """
+    from .coverage import reconcile
+
+    layout, prepared = _prepare(reports, layout)
+    coverage = reconcile(reports, prepared, requirements) if requirements is not None else None
+    if coverage is not None:
+        coverage.require_complete()
     path = Path(path)
     if path.suffix.lower() != ".xlsx":
         raise DataContractError("Choose a filename ending in .xlsx.")
@@ -369,6 +463,8 @@ def write_workbook(
             )
             for sheet, table in prepared:
                 _sheet(writer, reports[sheet.report], sheet, layout.display, table)
+            if coverage is not None:
+                _coverage_sheet(writer, coverage)
             ws = writer.book.add_worksheet("Methods")
             ws.hide_gridlines(2)
             ws.set_column(0, 0, 105)
@@ -376,6 +472,17 @@ def write_workbook(
                 {"font_name": "Arial", "font_size": 10, "text_wrap": True, "valign": "vcenter"}
             )
             row = 1
+            if requirements is not None:
+                from .provenance import digest
+
+                row = _write_text(
+                    ws,
+                    row,
+                    f"Publication requirements: {requirements.version}; SHA-256: {digest(requirements.model_dump(mode='json'))}",
+                    105,
+                    fmt,
+                    0,
+                )
             for key in dict.fromkeys(sheet.report for sheet in layout.sheets):
                 report = reports[key]
                 row = _write_text(ws, row, key, 105, fmt, 0)

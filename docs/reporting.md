@@ -1,5 +1,53 @@
 # Publication review
 
+## Define content separately from layout
+
+Each study can require different tables. Keep three versioned files beside its notebook:
+
+| File | Purpose | When a change needs participant data |
+|---|---|---|
+| `report-content.yaml` | Source fields and categorical, joint, binary or continuous summaries | New summaries must be calculated inside Workbench from the frozen matched participants. Existing fits can be reused. |
+| `publication.yaml` | Required variables/statistics, model/condition pairs, sample sizes and diagnostic columns across the manuscript and supplement | Never for the coverage check itself. An unrun required analysis still needs to be performed. |
+| `report-layout.yaml` | Sheets, selected variables/statistics/models, labels, precision and formatting | Never when the required aggregates already exist in the saved report. |
+
+Do not change the scientific study definition for a formatting revision. A new source field or changed scientific definition requires the appropriate versioned extraction/analysis; adding a summary of an existing field does not.
+
+```python
+from aou_studies.report_content import ReportSpec
+
+content = ReportSpec.load("report-content.yaml")
+run.report(spec=content)
+```
+
+`ReportSpec.characteristics` maps stable identifiers to `fields`, `kind` and optional `label`. Multiple fields define a joint categorical summary, such as `[race, ethnicity]`. The source columns and matching remain unchanged. Optional `groups` contain a label and explicit ordered value tuples; overlapping groups and ambiguous displayed categories are rejected. Unlisted combinations, including missing values, remain separate. Participant and matched-set identifiers cannot be summarized.
+
+Binary summaries require 0/1/missing values and report positive `n/N (%)` using the observed denominator, plus observed/missing counts. Categorical percentages use the full group's denominator and retain missing categories. Continuous summaries offer `mean_sd`, `median_iqr` and `missing`. Invalid numeric values fail rather than silently becoming normal or missing values. Small counts/complements and small missingness counts suppress the whole variable across both groups before persistence. Joint and marginal tables still require combined disclosure review.
+
+The saved report records the content definition/hash and screened group sizes. It cannot reconstruct a new joint table from old marginal counts. Regenerate that report from frozen participant features inside Workbench; do not attempt to infer joint cells from published tables.
+
+## Check complete publication coverage
+
+```python
+from aou_studies.coverage import PublicationSpec, check_coverage
+from aou_studies.excel import WorkbookSpec, write_workbook
+from aou_studies.reporting import Report
+
+reports = {"main": Report.load("outputs/primary/review")}
+layout = WorkbookSpec.load("report-layout.yaml")
+requirements = PublicationSpec.load("publication.yaml")
+coverage = check_coverage(reports, layout=layout, requirements=requirements)
+display(coverage.table)
+coverage.require_complete()
+write_workbook("outputs/manuscript-tables.xlsx", reports,
+               layout=layout, requirements=requirements)
+```
+
+Requirements are independent of the sheet arrangement. Select expected `study_id`/`protocol_version` for each named report, `characteristics` (variable to required summary names), `associations` (model to conditions), `group_sizes`, and `tables` (flow/balance to required columns). Association requirements default to condition, OR, CI, P and analyzed case/control/set sizes; primary results additionally require Holm P. An `OR (95% CI)` column supplies both estimate fields, and a condition fraction supplies its model-specific group denominator. Results and sample sizes may be on separate sheets; reconciliation uses original identifiers rather than visible labels. A sheet containing multiple models must display their identities.
+
+Missing required content blocks export before replacing an existing workbook. Coverage records explicitly suppressed and non-estimable rows as accounted for; an absent/unrun model remains missing. A successful check establishes content coverage, not valid clinical findings, estimability or permission to export. Checked exports include a Coverage sheet and a requirements version/hash in Methods. Export without requirements remains available for exploratory or backward-compatible reports, but makes no coverage claim.
+
+See [`examples/publication.yaml`](../examples/publication.yaml) and the different requirements/layout in [`examples/alternate_study/`](../examples/alternate_study/). The synthetic notebook executes both examples. Keep study-specific requirements and source manuscripts outside the public library.
+
 `run.report()` automatically writes `review/tables.xlsx`, CSV/HTML tables, methods evidence, and `report.json`. The Excel workbook has participant characteristics, associations, participant flow, matching balance and methods sheets. Full fit diagnostics remain in the private run bundle. Percentages use explicit denominators; labels distinguish mean/SD from median and quartiles. Baseline significance tests are omitted.
 
 ## Format tables without repeating the analysis
@@ -19,6 +67,7 @@ Copy [the example layout](../examples/report-layout.yaml) for a paper. This conf
 
 - `display`: decimal places for summaries, percentages, estimates and P values. Characteristic/condition order uses original variable keys. `display.labels` overrides variable or model names. Unlisted variables remain visible.
 - `sheets`: ordered sheet definitions selecting `characteristics`, `associations`, `flow` or `balance`. `report` selects a named saved analysis when combining sensitivities. `models` selects exact model IDs for association sheets; unknown IDs fail.
+- Characteristic sheets support `variables`, per-variable `summaries`, and `group_sizes: true` for headers. Selected summaries must exist and be appropriate for the variable. Selection happens after screening, so hiding a category or statistic cannot undo suppression. Requirements can demand summaries split across multiple sheets.
 - `columns` and `column_labels`: choose/order columns and rename headers. Association columns include `OR`, `95% CI`, `OR (95% CI)`, nominal `P`, `Holm P`, model-specific sample/set sizes and condition fractions.
 - `widths`, `header_groups`, `footnotes` and `orientation`: control presentation and printing. Grouped headers require contiguous, nonoverlapping selected columns. Headers freeze when scrolling is needed. Methods and review status are always included.
 

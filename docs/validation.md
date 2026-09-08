@@ -10,7 +10,7 @@ Build `Dockerfile.dev`, then run this inside that image with only the public rep
 ruff check src tests
 ruff format --check src tests
 python -m build
-pip install --no-deps dist/all_of_us_workbench_utils-0.2.0-py3-none-any.whl
+pip install --no-deps dist/all_of_us_workbench_utils-0.3.0-py3-none-any.whl
 pytest -q
 aou-studies synthetic --config examples/synthetic.yaml --output outputs/validation
 ```
@@ -36,3 +36,7 @@ The current implementation needs live Workbench acceptance. Synthetic tests, met
 Version 0.1.0 passed 40 tests in a clean wheel environment. Version 0.2.0 extends that environment with locked XlsxWriter 3.2.9 and passed 51 tests, including XLSX round trips, original numeric precision, suppression, literal formula-like text, invalid layouts, snapshot tampering and regeneration without statistical engines or BigQuery. The fresh synthetic notebook exercises a custom layout. A private, wholly synthetic EDS notebook also completed all cohort sensitivities and its combined workbook. Workbook sheets were rendered and inspected separately from numerical validation; native desktop Excel execution was not tested.
 
 The normal synthetic example produced an estimable primary model. No live BigQuery test has run yet. A separate generated 10,000/50,000-person matching benchmark is recorded in `matching-benchmark.json`; its dimensions and limitations are part of that record.
+
+Version 0.3.0 passed 75 tests from the installed wheel in the locked local environment. New checks independently calculate joint/binary/continuous summaries and cover missingness, small-count screening, category collisions, identifier rejection, stable-key coverage across split layouts, omitted variables/models/columns/reports/diagnostics, incorrect report identity, explicit non-estimability and atomic export rejection. Saved-report regeneration is tested with process execution and BigQuery query calls blocked. The public synthetic notebook executes two different reporting specifications and checked layouts.
+
+A private fresh-kernel synthetic study also completed its main analysis and all three cohort sensitivities. Its final 17-sheet workbook accounts for 112 declared content items, including every configured model/condition pair, model-specific condition fractions, sample/set sizes and flow/balance diagnostics. Explicit cell formats preserve wrapping in readers that do not inherit column formatting. This evidence establishes reporting behavior; native desktop Excel and live clinical acceptance are still separate.

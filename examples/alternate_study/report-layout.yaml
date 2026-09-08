@@ -1,0 +1,15 @@
+title: Alternate study tables
+sheets:
+  - name: Characteristics
+    table: characteristics
+    group_sizes: true
+    summaries:
+      age: [mean_sd, missing]
+      ehr_days: [mean_sd, missing]
+    widths: {Characteristic: 45, Cases: 23, Controls: 23}
+  - name: Associations
+    table: associations
+  - name: Flow
+    table: flow
+  - name: Balance
+    table: balance

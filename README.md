@@ -68,6 +68,8 @@ Use a clinically reviewed study configuration with `notebooks/workbench_study.ip
 
 ## Design and limits
 
+Publication tables are study-specific. Separate report-content, publication-requirement and layout files let studies choose summaries and split tables while checking complete coverage across the manuscript and supplement. See [reporting configuration and coverage checks](docs/reporting.md). The examples include joint categories, binary comorbidities, selectable continuous summaries and automatically labeled group sizes.
+
 The current analysis interface supports binary condition associations in matched case-control studies. It does not implement a time-to-event model, causal identification strategy, validated EDS phenotype, or prevalence estimator. Matching with reused controls is available for design exploration, but current inference rejects reused participants because their dependence requires another variance/model strategy.
 
 The extraction defaults to dated condition/visit evidence by the clinical cutoff, applies adult eligibility at that cutoff, and computes age separately at a literal reference date. Registered Tier date shifting affects interpretation. Missing smoking answers stay unknown; absence of a measurement is not a normal result. Numerical models use complete cases and discard sets without a case and control after exclusions.

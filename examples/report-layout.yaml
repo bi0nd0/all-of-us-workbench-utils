@@ -8,6 +8,11 @@ display:
 sheets:
   - name: Table 1
     table: characteristics
+    group_sizes: true
+    variables: [age, sex_at_birth, demographic_group, example_condition, ehr_days]
+    summaries:
+      age: [median_iqr, missing]
+      ehr_days: [median_iqr, missing]
     title: Table 1. Participant characteristics
     columns: [Characteristic, Cases, Controls]
     column_labels: {Cases: Study group, Controls: Matched controls}
@@ -18,7 +23,7 @@ sheets:
   - name: Table 2
     table: associations
     title: Table 2. Condition associations
-    columns: [Model, Condition, "OR (95% CI)", P, Holm P, Cases, Controls, Status]
+    columns: [Model, Condition, "OR (95% CI)", P, Holm P, Cases, Controls, Matched sets, Status]
     widths: {Model: 20, Condition: 23, "OR (95% CI)": 24, P: 9, Holm P: 9, Cases: 11, Controls: 11, Status: 17}
   - name: Participant flow
     table: flow

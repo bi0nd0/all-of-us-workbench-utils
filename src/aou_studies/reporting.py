@@ -7,12 +7,12 @@ from dataclasses import dataclass, field
 from html import escape
 import json
 from pathlib import Path
-import numpy as np
 import pandas as pd
 from .contracts import MatchResult
 from .specs import StudySpec
 from .errors import DataContractError
 from .provenance import digest
+from .report_content import ReportSpec, default_report_spec, summarize_characteristics
 
 SUPPRESSED = "Suppressed"
 
@@ -21,46 +21,9 @@ def small_count(value: int, threshold: int = 20) -> bool:
     return 0 < value <= threshold
 
 
-def characteristics(matched: MatchResult, study: StudySpec) -> pd.DataFrame:
+def characteristics(matched: MatchResult, study: StudySpec, spec: ReportSpec | None = None) -> pd.DataFrame:
     """Raw participant summaries, with explicit denominators; balance is separately weighted."""
-    rows = []
-    for role, group in matched.members.groupby("is_case"):
-        group = group.drop_duplicates("person_id")
-        label = "Cases" if role else "Controls"
-        for variable in study.categorical:
-            values = group[variable].astype("string").fillna("Missing")
-            for level, count in values.value_counts(dropna=False).sort_index().items():
-                rows.append(
-                    dict(
-                        group=label,
-                        variable=variable,
-                        level=str(level),
-                        statistic="n_percent",
-                        n=int(count),
-                        denominator=len(group),
-                        percent=100 * count / len(group),
-                    )
-                )
-        for variable in study.continuous:
-            values = pd.to_numeric(group[variable], errors="coerce")
-            values = values[np.isfinite(values)]
-            rows.append(
-                dict(
-                    group=label,
-                    variable=variable,
-                    level="",
-                    statistic="continuous",
-                    n=len(values),
-                    denominator=len(group),
-                    missing=len(group) - len(values),
-                    mean=values.mean(),
-                    sd=values.std(ddof=1),
-                    median=values.median(),
-                    q1=values.quantile(0.25),
-                    q3=values.quantile(0.75),
-                )
-            )
-    return pd.DataFrame(rows)
+    return summarize_characteristics(matched.members, spec or default_report_spec(study))
 
 
 def screened_characteristics(table: pd.DataFrame) -> pd.DataFrame:
@@ -70,8 +33,10 @@ def screened_characteristics(table: pd.DataFrame) -> pd.DataFrame:
         unsafe = any(small_count(int(v)) for v in rows.n) or any(
             small_count(int(n - v)) for n, v in zip(rows.denominator, rows.n)
         )
+        if "missing" in rows:
+            unsafe |= any(small_count(int(v)) for v in rows.missing.dropna())
         if unsafe:
-            cols = [c for c in table if c not in {"group", "variable", "level", "statistic"}]
+            cols = [c for c in table if c not in {"group", "variable", "level", "level_key", "statistic"}]
             result.loc[rows.index, cols] = SUPPRESSED
     return result
 
@@ -123,44 +88,89 @@ def screened_associations(results: pd.DataFrame, members: pd.DataFrame) -> pd.Da
 
 
 def publication_characteristics(
-    table: pd.DataFrame, labels: dict, *, decimals=1, percent_decimals=1
+    table: pd.DataFrame, labels: dict, *, decimals=1, percent_decimals=1, summaries=None
 ) -> pd.DataFrame:
     def statistic(value):
         return "Not available" if pd.isna(value) else f"{value:.{decimals}f}"
 
-    rows = []
+    rows = {}
+    identities = []
+    summaries = summaries or {}
+    missing = set(summaries) - set(table.variable)
+    if missing:
+        raise DataContractError(f"Unknown characteristic summary selection: {sorted(missing)}")
     for row in table.itertuples(index=False):
         variable = labels.get(row.variable, row.variable.replace("_", " ").title())
         hidden = row.n == SUPPRESSED
         if row.statistic == "n_percent":
-            rows.append(
-                {
-                    "Characteristic": f"{variable}: {row.level}",
-                    "Group": row.group,
-                    "Value": SUPPRESSED if hidden else f"{int(row.n)} ({row.percent:.{percent_decimals}f}%)",
-                }
-            )
-        else:
-            for suffix, text in [
-                ("Mean (SD)", SUPPRESSED if hidden else f"{statistic(row.mean)} ({statistic(row.sd)})"),
+            entries = [
                 (
+                    "n_percent",
+                    str(row.level),
+                    SUPPRESSED if hidden else f"{int(row.n)} ({row.percent:.{percent_decimals}f}%)",
+                )
+            ]
+        elif row.statistic == "binary":
+            fraction = (
+                SUPPRESSED
+                if hidden
+                else (
+                    "Not available"
+                    if row.denominator == 0
+                    else f"{int(row.n)}/{int(row.denominator)} ({row.percent:.{percent_decimals}f}%)"
+                )
+            )
+            entries = [
+                ("n_percent", "Recorded, n/N (%)", fraction),
+                (
+                    "missing",
+                    "Observed / missing",
+                    SUPPRESSED if hidden else f"{int(row.denominator)} / {int(row.missing)}",
+                ),
+            ]
+        else:
+            entries = [
+                (
+                    "mean_sd",
+                    "Mean (SD)",
+                    SUPPRESSED if hidden else f"{statistic(row.mean)} ({statistic(row.sd)})",
+                ),
+                (
+                    "median_iqr",
                     "Median [Q1, Q3]",
                     SUPPRESSED
                     if hidden
                     else f"{statistic(row.median)} [{statistic(row.q1)}, {statistic(row.q3)}]",
                 ),
-                ("Observed / missing", SUPPRESSED if hidden else f"{int(row.n)} / {int(row.missing)}"),
-            ]:
-                rows.append({"Characteristic": f"{variable}: {suffix}", "Group": row.group, "Value": text})
-    if not rows:
-        return pd.DataFrame(columns=["Characteristic", "Cases", "Controls"])
-    long = pd.DataFrame(rows)
-    wide = long.pivot(index="Characteristic", columns="Group", values="Value")
-    wide = wide.reindex(index=long.Characteristic.drop_duplicates(), columns=["Cases", "Controls"])
-    for name in wide.index:
-        fill = SUPPRESSED if wide.loc[name].eq(SUPPRESSED).any() else f"0 ({0:.{percent_decimals}f}%)"
-        wide.loc[name] = wide.loc[name].fillna(fill)
-    return wide.reset_index().rename_axis(None, axis=1)
+                (
+                    "missing",
+                    "Observed / missing",
+                    SUPPRESSED if hidden else f"{int(row.n)} / {int(row.missing)}",
+                ),
+            ]
+        available = {entry[0] for entry in entries}
+        selected = summaries.get(row.variable, tuple(available))
+        if not selected or set(selected) - available:
+            raise DataContractError(f"Unsupported summary selection for {row.variable!r}: {selected}")
+        for summary, suffix, text in entries:
+            if summary not in selected:
+                continue
+            level = getattr(row, "level_key", row.level)
+            if pd.isna(level):
+                level = row.level
+            key = (row.variable, summary, str(level))
+            if key not in rows:
+                rows[key] = {"Characteristic": f"{variable}: {suffix}"}
+                identities.append((row.variable, summary))
+            if row.group in rows[key]:
+                raise DataContractError("Duplicate characteristic rows in the saved report.")
+            rows[key][row.group] = text
+    result = pd.DataFrame(rows.values(), columns=["Characteristic", "Cases", "Controls"])
+    for idx in result.index:
+        fill = SUPPRESSED if result.loc[idx].eq(SUPPRESSED).any() else f"0 ({0:.{percent_decimals}f}%)"
+        result.loc[idx] = result.loc[idx].fillna(fill)
+    result.attrs["characteristics"] = identities
+    return result
 
 
 def publication_associations(
@@ -218,6 +228,9 @@ def publication_associations(
             }
         )
     result = pd.DataFrame(rows)
+    if table.duplicated(["model", "predictor"]).any():
+        raise DataContractError("Duplicate model/condition results in the saved report.")
+    result.attrs["associations"] = {(r.model, r.predictor): r.status for r in table.itertuples()}
     if numeric and not result.empty:
         result["OR (95% CI)"] = [
             number(row.odds_ratio)
@@ -282,10 +295,10 @@ class Report:
             metadata=payload["metadata"],
         )
 
-    def write_excel(self, path: str | Path, *, layout=None):
+    def write_excel(self, path: str | Path, *, layout=None, requirements=None):
         from .excel import write_workbook
 
-        return write_workbook(path, {"main": self}, layout=layout)
+        return write_workbook(path, {"main": self}, layout=layout, requirements=requirements)
 
     def write(self, directory: str | Path):
         directory = Path(directory)
@@ -327,7 +340,13 @@ class Report:
         self.write_excel(directory / "tables.xlsx")
 
 
-def build_report(matched: MatchResult, results: pd.DataFrame, flow: dict, study: StudySpec) -> Report:
+def build_report(
+    matched: MatchResult, results: pd.DataFrame, flow: dict, study: StudySpec, spec: ReportSpec | None = None
+) -> Report:
+    labels = {
+        **study.labels,
+        **({key: item.label for key, item in spec.characteristics.items() if item.label} if spec else {}),
+    }
     flow_table = pd.DataFrame([{"stage": k, "n": v} for k, v in flow.items()])
     counts = list(flow.values())
     if any(small_count(int(v)) for v in counts) or any(
@@ -375,9 +394,18 @@ def build_report(matched: MatchResult, results: pd.DataFrame, flow: dict, study:
         )
     )
     screened = {
-        "characteristics": screened_characteristics(characteristics(matched, study)),
+        "characteristics": screened_characteristics(characteristics(matched, study, spec)),
         "associations": screened_associations(results, matched.members),
     }
+    if spec:
+        methods += (
+            f"\nReport content version: {spec.version}; SHA-256: {digest(spec.model_dump(mode='json'))}."
+        )
+        for key, item in spec.characteristics.items():
+            methods += f"\nDescriptive {key}: {item.kind}; source fields {list(item.fields)}."
+            for category in item.groups:
+                methods += f"\nDisplay group {category.label}: {category.values}."
+        methods += "\nJoint categories preserve each recorded combination, including unknown/missing values. Explicit display groups do not alter matching. Binary n/N (%) uses observed values; missing counts are retained separately."
     # Persist only fields used by table presentation. Fit diagnostics remain private.
     association_fields = [
         "model",
@@ -398,7 +426,7 @@ def build_report(matched: MatchResult, results: pd.DataFrame, flow: dict, study:
     screened["associations"] = screened["associations"].reindex(columns=association_fields)
     return Report(
         {
-            "characteristics": publication_characteristics(screened["characteristics"], study.labels),
+            "characteristics": publication_characteristics(screened["characteristics"], labels),
             "associations": publication_associations(screened["associations"], study.labels),
             "flow": flow_table,
             "balance": balance,
@@ -408,7 +436,13 @@ def build_report(matched: MatchResult, results: pd.DataFrame, flow: dict, study:
         metadata={
             "study_id": study.study_id,
             "protocol_version": study.version,
-            "labels": study.labels,
+            "labels": labels,
+            "report_spec": (spec or default_report_spec(study)).model_dump(mode="json"),
+            "report_spec_hash": digest((spec or default_report_spec(study)).model_dump(mode="json")),
+            "group_sizes": {
+                "Cases" if role else "Controls": SUPPRESSED if small_count(len(group)) else len(group)
+                for role, group in matched.members.drop_duplicates("person_id").groupby("is_case")
+            },
             "age_reference_date": str(study.age_reference_date),
             "clinical_cutoff": str(study.clinical_cutoff),
             "dataset": study.dataset,

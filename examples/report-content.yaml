@@ -1,0 +1,7 @@
+version: example-descriptions-1
+characteristics:
+  age: {fields: [age], kind: continuous, label: Age (years)}
+  sex_at_birth: {fields: [sex_at_birth], label: Sex at birth}
+  demographic_group: {fields: [sex_at_birth, race], label: Recorded demographic group}
+  example_condition: {fields: [example_condition], kind: binary, label: Example recorded condition}
+  ehr_days: {fields: [ehr_days], kind: continuous, label: EHR record span (days)}

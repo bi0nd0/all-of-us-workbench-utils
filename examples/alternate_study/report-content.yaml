@@ -1,0 +1,5 @@
+version: alternate-descriptions-1
+characteristics:
+  age: {fields: [age], kind: continuous}
+  exclusion_condition: {fields: [exclusion_condition], kind: binary, label: Recorded exclusion condition}
+  ehr_days: {fields: [ehr_days], kind: continuous, label: EHR record span (days)}

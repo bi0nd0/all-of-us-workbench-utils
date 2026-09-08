@@ -148,7 +148,7 @@ class StudyRun:
         self._save_manifest()
         return {"stage": "analyzed", "all_estimable": bool(self.results.status.eq("estimated").all())}
 
-    def report(self):
+    def report(self, *, spec=None):
         self._assert_unchanged()
         if self.results is None:
             raise DataContractError("Analyze before building review tables.")
@@ -162,7 +162,7 @@ class StudyRun:
             "matched_cases": self.matched.metadata["matched_cases"],
             "matched_controls": self.matched.metadata["controls"],
         }
-        report = build_report(self.matched, self.results, flow, self.spec)
+        report = build_report(self.matched, self.results, flow, self.spec, spec)
         report.metadata["synthetic"] = self.synthetic
         report.write(self.directory / "review")
         return {
